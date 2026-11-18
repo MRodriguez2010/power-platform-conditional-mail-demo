@@ -1,0 +1,21 @@
+{
+  "test_date": "2026-11-17 America/Chicago",
+  "authorized_count": 2,
+  "recipient_scope": "Owner-controlled synthetic-test mailbox",
+  "run_id": "08584066429374372821140468194CU21",
+  "run_status": "Succeeded",
+  "received_utc": "2026-11-18T01:05:51Z",
+  "messages": [
+    {
+      "subject": "[SYNTHETIC DEMO 1/2] No attachment",
+      "has_attachment": false
+    },
+    {
+      "subject": "[SYNTHETIC DEMO 2/2] Harmless text attachment",
+      "has_attachment": true
+    }
+  ],
+  "retry_policy": "None",
+  "post_test_flow_state": "Off",
+  "scope_limit": "Separate two-action transport test; not an integrated exactly-once delivery implementation"
+}

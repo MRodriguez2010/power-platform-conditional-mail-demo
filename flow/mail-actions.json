@@ -1,0 +1,169 @@
+{
+  "Read_dummy_attachment": {
+    "type": "OpenApiConnection",
+    "runAfter": {},
+    "inputs": {
+      "parameters": {
+        "dataset": "__SHAREPOINT_SITE_URL__",
+        "path": "/Shared Documents/demo-action-guide.txt",
+        "inferContentType": true
+      },
+      "host": {
+        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+        "connectionName": "shared_sharepointonline",
+        "operationId": "GetFileContentByPath"
+      },
+      "authentication": {
+        "type": "Raw",
+        "value": "@json(decodeBase64(triggerOutputs().headers['X-MS-APIM-Tokens']))['$ConnectionKey']"
+      }
+    }
+  },
+  "Read_contacts": {
+    "type": "OpenApiConnection",
+    "runAfter": {
+      "Read_dummy_attachment": [
+        "Succeeded"
+      ]
+    },
+    "inputs": {
+      "parameters": {
+        "source": "__EXCEL_SOURCE__",
+        "drive": "__EXCEL_DRIVE__",
+        "file": "mail.xlsx",
+        "table": "MailContacts",
+        "dateTimeFormat": "ISO 8601"
+      },
+      "host": {
+        "apiId": "/providers/Microsoft.PowerApps/apis/shared_excelonlinebusiness",
+        "connectionName": "shared_excelonlinebusiness",
+        "operationId": "GetItems"
+      },
+      "authentication": {
+        "type": "Raw",
+        "value": "@json(decodeBase64(triggerOutputs().headers['X-MS-APIM-Tokens']))['$ConnectionKey']"
+      }
+    }
+  },
+  "For_each_contact": {
+    "type": "Foreach",
+    "foreach": "@body('Read_contacts')?['value']",
+    "actions": {
+      "Same_contact": {
+        "type": "Query",
+        "inputs": {
+          "from": "@body('Read_contacts')?['value']",
+          "where": "@equals(item()?['EmployeeId'],items('For_each_contact')?['EmployeeId'])"
+        },
+        "runAfter": {}
+      },
+      "Status": {
+        "type": "Compose",
+        "inputs": "@if(not(equals(length(body('Same_contact')),1)),'DuplicateNeedsReview',if(or(greater(int(items('For_each_contact')?['PreviousContacts']),0),equals(items('For_each_contact')?['PreviousState'],'Sent')),'SuppressedAlreadyContacted',if(equals(items('For_each_contact')?['PreviousState'],'Prepared'),'SuppressedAlreadyPrepared',if(equals(items('For_each_contact')?['PreviousState'],'Unknown'),'HoldUncertainOutcome',if(and(equals(toLower(string(items('For_each_contact')?['NeedsAttachment'])),'true'),not(equals(items('For_each_contact')?['Attachment'],'demo-action-guide.txt'))),'MissingAttachment','PreviewReady')))))",
+        "runAfter": {
+          "Same_contact": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Preview": {
+        "type": "Compose",
+        "inputs": {
+          "EmployeeId": "@items('For_each_contact')?['EmployeeId']",
+          "Campaign": "@items('For_each_contact')?['Campaign']",
+          "Name": "@items('For_each_contact')?['Name']",
+          "Branch": "@items('For_each_contact')?['Category']",
+          "Status": "@outputs('Status')",
+          "Attachment": "@if(equals(toLower(string(items('For_each_contact')?['NeedsAttachment'])),'true'),items('For_each_contact')?['Attachment'],'')",
+          "AttachmentContent": "@if(and(equals(outputs('Status'),'PreviewReady'),equals(toLower(string(items('For_each_contact')?['NeedsAttachment'])),'true')),body('Read_dummy_attachment'),null)",
+          "Subject": "Synthetic interview practice notice",
+          "RealSends": 0,
+          "Body": "@concat('Hello ',items('For_each_contact')?['Name'],'. This is a synthetic ',items('For_each_contact')?['Category'],' message preview.')"
+        },
+        "runAfter": {
+          "Status": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Write_preview": {
+        "type": "OpenApiConnection",
+        "runAfter": {
+          "Preview": [
+            "Succeeded"
+          ]
+        },
+        "inputs": {
+          "parameters": {
+            "dataset": "__SHAREPOINT_SITE_URL__",
+            "folderPath": "/Shared Documents",
+            "name": "@concat('demo-mail-',items('For_each_contact')?['Campaign'],'-',items('For_each_contact')?['EmployeeId'],'.json')",
+            "body": "@string(outputs('Preview'))"
+          },
+          "host": {
+            "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+            "connectionName": "shared_sharepointonline",
+            "operationId": "CreateFile"
+          },
+          "authentication": {
+            "type": "Raw",
+            "value": "@json(decodeBase64(triggerOutputs().headers['X-MS-APIM-Tokens']))['$ConnectionKey']"
+          }
+        }
+      },
+      "Log_prepared_only_after_receipt": {
+        "type": "If",
+        "expression": {
+          "equals": [
+            "@outputs('Status')",
+            "PreviewReady"
+          ]
+        },
+        "actions": {
+          "Record_prepared": {
+            "type": "OpenApiConnection",
+            "runAfter": {},
+            "inputs": {
+              "parameters": {
+                "source": "__EXCEL_SOURCE__",
+                "drive": "__EXCEL_DRIVE__",
+                "file": "mail.xlsx",
+                "table": "MailContacts",
+                "idColumn": "EmployeeId",
+                "id": "@items('For_each_contact')?['EmployeeId']",
+                "item/PreviousState": "Prepared"
+              },
+              "host": {
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_excelonlinebusiness",
+                "connectionName": "shared_excelonlinebusiness",
+                "operationId": "PatchItem"
+              },
+              "authentication": {
+                "type": "Raw",
+                "value": "@json(decodeBase64(triggerOutputs().headers['X-MS-APIM-Tokens']))['$ConnectionKey']"
+              }
+            }
+          }
+        },
+        "else": {
+          "actions": {}
+        },
+        "runAfter": {
+          "Write_preview": [
+            "Succeeded"
+          ]
+        }
+      }
+    },
+    "runAfter": {
+      "Read_contacts": [
+        "Succeeded"
+      ]
+    },
+    "runtimeConfiguration": {
+      "concurrency": {
+        "repetitions": 1
+      }
+    }
+  }
+}
